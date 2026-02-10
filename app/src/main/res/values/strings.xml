@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Manuscript Regenerator</string>
+
+    <!-- UI Strings -->
+    <string name="select_image">Select Image</string>
+    <string name="process">Process</string>
+    <string name="save">Save</string>
+    <string name="clear">Clear</string>
+
+    <!-- Status Messages -->
+    <string name="status_ready">Ready to process manuscripts</string>
+    <string name="status_processing">Processing manuscript…</string>
+    <string name="status_success">Processing complete!</string>
+    <string name="status_error">Processing failed</string>
+
+    <!-- Toast Messages -->
+    <string name="toast_model_loaded">Model loaded successfully</string>
+    <string name="toast_model_failed">Failed to load model</string>
+    <string name="toast_select_image">Please select an image first</string>
+    <string name="toast_processing_success">Manuscript restored successfully!</string>
+    <string name="toast_processing_failed">Processing failed</string>
+    <string name="toast_saved">Image saved to Gallery!</string>
+    <string name="toast_save_failed">Failed to save image</string>
+    <string name="toast_permission_denied">Permission denied. Cannot access images.</string>
+
+    <!-- Loading Messages -->
+    <string name="loading_model">Loading AI model…</string>
+    <string name="loading_processing">Processing manuscript…</string>
+    <string name="loading_saving">Saving image…</string>
+</resources>
