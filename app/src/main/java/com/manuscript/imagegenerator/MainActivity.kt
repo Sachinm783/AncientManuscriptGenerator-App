@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
+// ML Kit Imports
 import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
@@ -36,22 +37,25 @@ class MainActivity : AppCompatActivity() {
 
     private var isModelInitialized = false
 
-    // Unified Scanner Launcher (Handles both Camera & Gallery Import)
+    // 1. Standard Gallery Launcher (Direct Access)
+    private val pickImageLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { handleImageSelected(it) }
+    }
+
+    // 2. Document Scanner Launcher (Camera + Auto Crop)
     private val scannerLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK) {
             val scanningResult = GmsDocumentScanningResult.fromActivityResultIntent(result.data)
-
-            // The scanner returns cropped, cleaned pages. We take the first one.
             scanningResult?.pages?.let { pages ->
                 if (pages.isNotEmpty()) {
                     val scannedUri = pages[0].imageUri
                     handleImageSelected(scannedUri)
                 }
             }
-        } else {
-            // Scan cancelled
         }
     }
 
@@ -65,34 +69,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
-        // 1. Scan Button (Camera)
+        // BUTTON 1: SCAN (Opens Camera with Auto-Crop)
         binding.btnScan.setOnClickListener {
             startDocumentScan()
         }
 
-        // 2. Select Button (Gallery)
-        // We route this through the Scanner too, so ML Kit can auto-crop the gallery image.
+        // BUTTON 2: GALLERY (Opens System Gallery Directly)
         binding.btnSelectImage.setOnClickListener {
-            Toast.makeText(this, "Tap the 'Import' icon in the scanner to pick from Gallery", Toast.LENGTH_LONG).show()
-            startDocumentScan()
+            openSystemGallery()
         }
 
-        // 3. Process Button
         binding.btnProcess.setOnClickListener {
             processImage()
         }
 
-        // 4. Save Button
         binding.btnSave.setOnClickListener {
             saveResultImage()
         }
 
-        // 5. Clear Button
         binding.btnClear.setOnClickListener {
             clearAll()
         }
 
-        // Initially hide process/save buttons
         updateUIState(hasImage = false, hasResult = false)
     }
 
@@ -126,13 +124,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Launch Google ML Kit Document Scanner
-     * This handles Auto-Cropping, Edge Detection, and Cleaning.
+     * Option A: Opens System Gallery Directly
+     */
+    private fun openSystemGallery() {
+        pickImageLauncher.launch("image/*")
+    }
+
+    /**
+     * Option B: Opens ML Kit Scanner (Camera)
      */
     private fun startDocumentScan() {
         val options = GmsDocumentScannerOptions.Builder()
-            .setGalleryImportAllowed(true) // Allows importing existing photos for auto-cropping
-            .setPageLimit(1) // We only need 1 page for restoration
+            .setGalleryImportAllowed(true)
+            .setPageLimit(1)
             .setResultFormats(RESULT_FORMAT_JPEG)
             .setScannerMode(SCANNER_MODE_FULL)
             .build()
@@ -147,7 +151,6 @@ class MainActivity : AppCompatActivity() {
             }
             .addOnFailureListener { e ->
                 showToast("❌ Scanner failed: ${e.message}")
-                e.printStackTrace()
             }
     }
 
@@ -156,7 +159,6 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             try {
-                // Load bitmap from URI
                 inputBitmap = withContext(Dispatchers.IO) {
                     contentResolver.openInputStream(uri)?.use { inputStream ->
                         BitmapFactory.decodeStream(inputStream)
@@ -164,27 +166,21 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 inputBitmap?.let { bitmap ->
-                    // Display input image
                     Glide.with(this@MainActivity)
                         .load(bitmap)
                         .into(binding.ivInputImage)
 
-                    // Update UI
                     binding.tvInputInfo.text = "Input: ${bitmap.width} × ${bitmap.height} px"
                     binding.tvStatus.text = "Image loaded. Click 'Restore' to begin."
 
-                    // FIX: Hide the placeholder text when image loads
+                    // UI Updates
                     binding.tvInputPlaceholder.visibility = View.GONE
-
-                    updateUIState(hasImage = true, hasResult = false)
-
-                    // Clear previous output
                     binding.ivOutputImage.setImageDrawable(null)
                     binding.tvOutputInfo.text = "Output: -"
                     outputBitmap = null
-
-                    // FIX: Show the output placeholder again since we cleared the result
                     binding.tvOutputPlaceholder.visibility = View.VISIBLE
+
+                    updateUIState(hasImage = true, hasResult = false)
 
                 } ?: run {
                     showToast("Failed to load image")
@@ -214,10 +210,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val startTime = System.currentTimeMillis()
-
-                // Run inference
                 val result = inferenceEngine.processImage(bitmap)
-
                 val processingTime = System.currentTimeMillis() - startTime
 
                 withContext(Dispatchers.Main) {
@@ -227,18 +220,12 @@ class MainActivity : AppCompatActivity() {
                         outputBitmap = result.getOrNull()
 
                         outputBitmap?.let { output ->
-                            // Display output image
                             Glide.with(this@MainActivity)
                                 .load(output)
                                 .into(binding.ivOutputImage)
 
-                            // Update info
-                            binding.tvOutputInfo.text =
-                                "Output: ${output.width} × ${output.height} px"
-                            binding.tvStatus.text =
-                                "✅ Processing complete in ${processingTime}ms"
-
-                            // FIX: Hide the output placeholder text
+                            binding.tvOutputInfo.text = "Output: ${output.width} × ${output.height} px"
+                            binding.tvStatus.text = "✅ Processing complete in ${processingTime}ms"
                             binding.tvOutputPlaceholder.visibility = View.GONE
 
                             updateUIState(hasImage = true, hasResult = true)
@@ -256,7 +243,6 @@ class MainActivity : AppCompatActivity() {
                     showLoading(false)
                     binding.tvStatus.text = "❌ Error: ${e.message}"
                     showToast("Error during processing")
-                    e.printStackTrace()
                 }
             }
         }
@@ -264,7 +250,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun saveResultImage() {
         val bitmap = outputBitmap ?: run {
-            showToast("No result to save. Process an image first.")
+            showToast("No result to save.")
             return
         }
 
@@ -273,7 +259,6 @@ class MainActivity : AppCompatActivity() {
                 val saved = withContext(Dispatchers.IO) {
                     saveBitmapToGallery(bitmap)
                 }
-
                 withContext(Dispatchers.Main) {
                     if (saved) {
                         showToast("✅ Image saved to Gallery!")
@@ -282,11 +267,9 @@ class MainActivity : AppCompatActivity() {
                         showToast("❌ Failed to save image")
                     }
                 }
-
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     showToast("Error saving: ${e.message}")
-                    e.printStackTrace()
                 }
             }
         }
@@ -295,7 +278,6 @@ class MainActivity : AppCompatActivity() {
     private fun saveBitmapToGallery(bitmap: Bitmap): Boolean {
         return try {
             val filename = "manuscript_restored_${System.currentTimeMillis()}.png"
-
             val contentValues = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, filename)
                 put(MediaStore.Images.Media.MIME_TYPE, "image/png")
@@ -305,16 +287,12 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            val uri = contentResolver.insert(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                contentValues
-            )
+            val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
 
             uri?.let {
                 contentResolver.openOutputStream(it)?.use { outputStream ->
                     bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
                 }
-
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     contentValues.clear()
                     contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
@@ -322,7 +300,6 @@ class MainActivity : AppCompatActivity() {
                 }
                 true
             } ?: false
-
         } catch (e: IOException) {
             e.printStackTrace()
             false
@@ -340,7 +317,6 @@ class MainActivity : AppCompatActivity() {
         binding.tvOutputInfo.text = "Output: -"
         binding.tvStatus.text = "Ready to process manuscripts"
 
-        // FIX: Show both placeholders again
         binding.tvInputPlaceholder.visibility = View.VISIBLE
         binding.tvOutputPlaceholder.visibility = View.VISIBLE
 
@@ -351,12 +327,9 @@ class MainActivity : AppCompatActivity() {
         binding.btnProcess.isEnabled = hasImage && isModelInitialized
         binding.btnSave.isEnabled = hasResult
         binding.btnClear.isEnabled = hasImage || hasResult
-
-        // Scan/Select should usually stay enabled so user can change image
         binding.btnScan.isEnabled = true
         binding.btnSelectImage.isEnabled = true
 
-        // Update button visibility
         binding.btnProcess.alpha = if (hasImage && isModelInitialized) 1.0f else 0.5f
         binding.btnSave.alpha = if (hasResult) 1.0f else 0.5f
     }
@@ -366,7 +339,6 @@ class MainActivity : AppCompatActivity() {
         binding.tvLoadingMessage.visibility = if (show) View.VISIBLE else View.GONE
         binding.tvLoadingMessage.text = message
 
-        // Disable buttons while loading
         binding.btnScan.isEnabled = !show
         binding.btnSelectImage.isEnabled = !show
         binding.btnProcess.isEnabled = !show && inputBitmap != null
